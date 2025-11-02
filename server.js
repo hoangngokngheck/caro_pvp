@@ -19,13 +19,19 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
 // ================== BỘ NHỚ TẠM ==================
-const matches = new Map();     // matchId -> thông tin trận
-const users = new Map();       // userId  -> { username, socketId }
-const userStatus = new Map();  // userId  -> "idle" | "in_match"
+let nextMatchId = 1;
+const sharedState = {
+  matches: new Map(), // matchId -> thông tin trận
+  users: new Map(), // userId  -> { username, socketId }
+  userStatus: new Map(), // userId  -> "idle" | "in_match"
+  generateMatchId() {
+    return nextMatchId++;
+  },
+};
 
 // ================== ROUTE HANDLERS ==================
 app.use("/api", authRoutes);
-app.use("/api/matches", createMatchRoutes(matches, users));
+app.use("/api/matches", createMatchRoutes(sharedState));
 app.use("/api/history", historyRoutes);
 
 // ================== HTTP + SOCKET SERVER ==================
@@ -41,8 +47,8 @@ const io = new Server(server, {
 
 // ================== MODULE SOCKET ==================
 // ⚠️ Phải import SAU khi tạo io, và truyền cùng 1 instance io để đồng bộ
-require("./socket/inviteSocket")(io, matches, users, userStatus);
-require("./socket/gameSocket")(io, matches, users, userStatus);
+require("./socket/inviteSocket")(io, sharedState);
+require("./socket/gameSocket")(io, sharedState);
 
 // ================== CHẠY SERVER ==================
 const PORT = process.env.PORT || 3000;
