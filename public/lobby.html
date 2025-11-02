@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>Lobby Caro PvP</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 720px;
+      margin: 40px auto;
+      background: #f9f9f9;
+    }
+    input, button {
+      padding: 8px;
+      margin: 4px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: left;
+    }
+    #header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    #me {
+      font-weight: bold;
+      color: #007bff;
+    }
+    button {
+      cursor: pointer;
+    }
+  </style>
+  <!-- <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script> -->
+   <script src="/socket.io/socket.io.js"></script>
+
+</head>
+<body>
+  <div id="header">
+    <h2>🎮 Lobby Caro PvP</h2>
+    <div>
+      <span id="me"></span>
+      <button onclick="logout()">Đăng xuất</button>
+    </div>
+  </div>
+
+  <div id="actions" style="display:none;">
+    <button onclick="createMatch()">Tạo trận mới</button>
+    <button onclick="loadMatches()">Tải danh sách trận</button>
+    <button onclick="goHistory()">📜 Lịch sử trận đấu</button>
+
+    <h3>Người chơi đang online</h3>
+    <ul id="onlineList"></ul>
+
+    <h3>Lời mời đến</h3>
+    <ul id="inviteList"></ul>
+    <button onclick="declineAll()">Từ chối tất cả</button>
+  </div>
+
+  <table id="tbl" style="display:none;">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Trạng thái</th>
+        <th>Người chơi</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <script>
+    const socket = io();
+    let user = null;
+    let userId = null;
+    let username = null;
+
+    // --- Kiểm tra đăng nhập ---
+    const savedUser = localStorage.getItem("user");
+    if (!savedUser) {
+      window.location = "/auth.html";
+    } else {
+      user = JSON.parse(savedUser);
+      userId = user.id;
+      username = user.username;
+      document.getElementById("me").textContent = `👤 ${username}`;
+      document.getElementById("actions").style.display = "block";
+      socket.emit("user_online", { userId, username });
+      loadMatches();
+    }
+
+    // --- Đăng xuất ---
+    function logout() {
+      localStorage.removeItem("user");
+      window.location = "/auth.html";
+    }
+
+    // --- Tải danh sách trận ---
+    async function loadMatches() {
+      const res = await fetch("/api/matches");
+      const list = await res.json();
+      const tbody = document.getElementById("rows");
+      tbody.innerHTML = "";
+      list.forEach((m) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${m.id}</td>
+          <td>${m.status}</td>
+          <td>${m.players.join(", ")}</td>
+          <td><button onclick="joinMatch(${m.id})">Tham gia</button></td>`;
+        tbody.appendChild(tr);
+      });
+      document.getElementById("tbl").style.display = "table";
+    }
+
+    // --- Tạo trận mới ---
+    async function createMatch() {
+      if (!user) return alert("Đăng nhập trước!");
+      const res = await fetch("/api/matches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      const { matchId } = await res.json();
+      window.location = `/game.html?matchId=${matchId}&userId=${user.id}`;
+    }
+
+    // --- Tham gia trận ---
+    async function joinMatch(matchId) {
+      if (!user) return alert("Đăng nhập trước!");
+      const res = await fetch(`/api/matches/${matchId}/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      const data = await res.json();
+      if (data.error) return alert(data.error);
+      window.location = `/game.html?matchId=${matchId}&userId=${user.id}`;
+    }
+
+    // --- Xem lịch sử ---
+    function goHistory() {
+      window.location = "/history.html";
+    }
+
+    /* ===================== MỜI NGƯỜI CHƠI ===================== */
+
+    // Cập nhật danh sách người online
+    socket.on("update_online_users", (list) => {
+      const onlineList = document.getElementById("onlineList");
+      onlineList.innerHTML = "";
+      list.forEach((u) => {
+        if (u.id != userId) {
+          const li = document.createElement("li");
+          if (u.status === "in_match") {
+            li.textContent = `${u.username} – 🎮 Đang trong trận`;
+          } else {
+            li.innerHTML = `${u.username} <button onclick="sendInvite(${u.id})">Mời</button>`;
+          }
+          onlineList.appendChild(li);
+        }
+      });
+    });
+
+    // Gửi lời mời
+    function sendInvite(toId) {
+      socket.emit("send_invite", { fromId: userId, toId });
+    }
+
+    socket.on("invite_error", (msg) => alert("⚠️ " + msg));
+
+    // Khi có lời mời mới
+    socket.on("new_invite", ({ fromId, fromName }) => {
+      alert(`📨 Lời mời chơi từ ${fromName}`);
+      socket.emit("get_invites", userId);
+    });
+
+    // Cập nhật danh sách lời mời
+    socket.on("invite_list", (list) => {
+      const inviteList = document.getElementById("inviteList");
+      inviteList.innerHTML = "";
+      list.forEach((inv) => {
+        const li = document.createElement("li");
+        li.innerHTML = `
+          ${inv.fromName}
+          <button onclick="acceptInvite(${inv.fromId})">Chấp nhận</button>
+          <button onclick="declineInvite(${inv.fromId})">Từ chối</button>`;
+        inviteList.appendChild(li);
+      });
+    });
+
+    // Khi lời mời được chấp nhận → vào game
+    socket.on("invite_accepted", ({ matchId }) => {
+      window.location = `/game.html?matchId=${matchId}&userId=${userId}`;
+    });
+
+    function acceptInvite(fromId) {
+      socket.emit("accept_invite", { userId, fromId });
+    }
+
+    function declineInvite(fromId) {
+      socket.emit("decline_invite", { userId, fromId });
+    }
+
+    function declineAll() {
+      socket.emit("decline_all", userId);
+    }
+  </script>
+</body>
+</html>

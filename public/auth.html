@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>Đăng nhập | Caro PvP</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin-top: 60px; }
+    input, button { padding: 8px; margin: 6px; }
+  </style>
+</head>
+<body>
+  <h2>🎮 Caro PvP</h2>
+  <h3 id="modeTitle">Đăng nhập</h3>
+
+  <div id="loginForm">
+    <input id="loginUser" placeholder="Tên đăng nhập" /><br />
+    <input id="loginPass" type="password" placeholder="Mật khẩu" /><br />
+    <button onclick="login()">Đăng nhập</button>
+    <p>Chưa có tài khoản? <a href="#" onclick="toggleMode()">Đăng ký ngay</a></p>
+  </div>
+
+  <div id="registerForm" style="display:none;">
+    <input id="regUser" placeholder="Tên đăng nhập" /><br />
+    <input id="regPass" type="password" placeholder="Mật khẩu" /><br />
+    <button onclick="register()">Đăng ký</button>
+    <p>Đã có tài khoản? <a href="#" onclick="toggleMode()">Quay lại đăng nhập</a></p>
+  </div>
+
+  <script>
+    function toggleMode() {
+      const loginForm = document.getElementById("loginForm");
+      const regForm = document.getElementById("registerForm");
+      const title = document.getElementById("modeTitle");
+      if (loginForm.style.display === "none") {
+        loginForm.style.display = "block";
+        regForm.style.display = "none";
+        title.textContent = "Đăng nhập";
+      } else {
+        loginForm.style.display = "none";
+        regForm.style.display = "block";
+        title.textContent = "Đăng ký";
+      }
+    }
+
+    async function register() {
+      const username = document.getElementById("regUser").value.trim();
+      const password = document.getElementById("regPass").value.trim();
+      if (!username || !password) return alert("Nhập đủ thông tin!");
+      const res = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (data.error) alert(data.error);
+      else {
+        alert("Đăng ký thành công! Hãy đăng nhập nhé!");
+        toggleMode();
+      }
+    }
+
+    async function login() {
+      const username = document.getElementById("loginUser").value.trim();
+      const password = document.getElementById("loginPass").value.trim();
+      if (!username || !password) return alert("Nhập đủ thông tin!");
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (data.error) return alert(data.error);
+      localStorage.setItem("user", JSON.stringify(data));
+      window.location = "/lobby.html";
+    }
+  </script>
+</body>
+</html>

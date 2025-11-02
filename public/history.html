@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>Lịch sử trận đấu – Caro PvP</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin: 30px; background: #fafafa; }
+    h2 { color: #444; }
+    table { margin: 10px auto; border-collapse: collapse; }
+    td { width: 28px; height: 28px; border: 1px solid #666; text-align: center; font-size: 16px; }
+    th, td { padding: 5px; }
+    #board { margin-top: 20px; }
+    button { padding: 6px 10px; margin: 6px; }
+  </style>
+</head>
+<body>
+  <h2>📜 Lịch sử trận đấu</h2>
+  <a href="/">← Quay lại lobby</a>
+
+  <div id="matchList"></div>
+  <div id="board"></div>
+
+  <script>
+    const matchList = document.getElementById("matchList");
+    const boardDiv = document.getElementById("board");
+
+    // Lấy danh sách trận gần nhất
+    async function loadHistory() {
+      const res = await fetch("/api/history");
+      const list = await res.json();
+
+      matchList.innerHTML = "<h3>Các trận gần nhất</h3>";
+      const table = document.createElement("table");
+      table.border = 1;
+      table.innerHTML = `
+        <tr><th>ID</th><th>Trạng thái</th><th>Kết quả</th><th>Bắt đầu</th><th>Kết thúc</th><th>Xem lại</th></tr>
+      `;
+      list.forEach(m => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${m.id}</td>
+          <td>${m.status}</td>
+          <td>${m.result}</td>
+          <td>${m.startedAt?.replace("T"," ").slice(0,19) || ""}</td>
+          <td>${m.endedAt?.replace("T"," ").slice(0,19) || ""}</td>
+          <td><button onclick="viewMatch(${m.id})">👁️</button></td>
+        `;
+        table.appendChild(tr);
+      });
+      matchList.appendChild(table);
+    }
+
+    // Xem chi tiết một trận (hiển thị bàn cờ)
+    async function viewMatch(matchId) {
+      const res = await fetch(`/api/history/${matchId}`);
+      const data = await res.json();
+      if (!data.boardData) return alert("Không có dữ liệu bàn cờ!");
+
+      const boardData = data.boardData;
+      const size = boardData.length;
+      boardDiv.innerHTML = `<h4>Bàn cờ trận #${matchId}</h4>`;
+
+      const table = document.createElement("table");
+      for (let r = 0; r < size; r++) {
+        const tr = document.createElement("tr");
+        for (let c = 0; c < size; c++) {
+          const td = document.createElement("td");
+          td.textContent = boardData[r][c] || "";
+          tr.appendChild(td);
+        }
+        table.appendChild(tr);
+      }
+      boardDiv.innerHTML = "";
+      boardDiv.appendChild(table);
+    }
+
+    loadHistory();
+  </script>
+</body>
+</html>
