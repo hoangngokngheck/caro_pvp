@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>Caro PvP – Trận đấu</title>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    body { font-family: sans-serif; text-align: center; background: #fafafa; }
+    a { display: inline-block; margin: 10px 0; text-decoration: none; color: #007bff; }
+    table { margin: 10px auto; border-collapse: collapse; }
+    td {
+      width: 32px; height: 32px;
+      border: 1px solid #666;
+      text-align: center;
+      font-size: 20px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    td:hover { background: #eee; }
+    #status { margin: 10px; font-weight: bold; color: #333; }
+    #timer { font-size: 18px; color: green; }
+    #winner { font-size: 20px; color: crimson; margin: 10px 0; }
+    #rematchBtn { display: none; padding: 6px 10px; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <h3>🎮 Caro PvP – Bàn cờ</h3>
+  <a href="/lobby.html">← Về lobby</a>
+
+  <p id="status">Đang kết nối...</p>
+  <p id="timer"></p>
+  <p id="winner"></p>
+
+  <button id="rematchBtn" onclick="sendRematch()">🔄 Chơi lại</button>
+
+  <table id="board"></table>
+
+  <script>
+    const socket = io();
+
+    const params = new URLSearchParams(location.search);
+    const matchId = Number(params.get("matchId"));
+    const userId = Number(params.get("userId"));
+
+    const size = 15;
+    let mySymbol = null;
+    let currentTurn = "X";
+    let gameOver = false;
+    let isMyTurn = false;
+    const board = Array.from({ length: size }, () => Array(size).fill(""));
+    const cells = [];
+
+    // --- Tạo bàn cờ ---
+    const table = document.getElementById("board");
+    for (let r = 0; r < size; r++) {
+      const tr = document.createElement("tr");
+      cells[r] = [];
+      for (let c = 0; c < size; c++) {
+        const td = document.createElement("td");
+        td.onclick = () => handleClick(r, c);
+        tr.appendChild(td);
+        cells[r][c] = td;
+      }
+      table.appendChild(tr);
+    }
+
+    // --- Tham gia trận ---
+    socket.emit("join_match", { matchId, userId });
+
+    socket.on("assign_symbol", ({ symbol, turn }) => {
+      mySymbol = symbol;
+      currentTurn = turn;
+      isMyTurn = (mySymbol === currentTurn);
+      updateStatus(`Đã vào trận – bạn là ${mySymbol}`);
+    });
+
+    socket.on("room_info", ({ players, turn, status }) => {
+      updateStatus(`Người chơi: ${players.join(" vs ")} | Trạng thái: ${status} | Lượt: ${turn}`);
+    });
+
+    // --- Khi có nước đi từ đối thủ ---
+    socket.on("update_board", ({ r, c, symbol, nextTurn }) => {
+      if (gameOver) return;
+      if (!board[r][c]) {
+        board[r][c] = symbol;
+        cells[r][c].textContent = symbol;
+      }
+      currentTurn = nextTurn;
+      isMyTurn = (mySymbol === currentTurn);
+      updateStatus();
+    });
+
+    // --- Bộ đếm thời gian ---
+    socket.on("timer_start", ({ turn, time }) => {
+      if (gameOver) return;
+      document.getElementById("timer").textContent = `~ của ${turn} (${time}s)`;
+    });
+    socket.on("timer_tick", ({ turn, time }) => {
+      if (gameOver) return;
+      document.getElementById("timer").textContent = `Lượt của ${turn} (${time}s)`;
+    });
+
+    // --- Khi hết giờ ---
+    socket.on("time_out", ({ loser, winner }) => {
+      gameOver = true;
+      document.getElementById("winner").textContent = `⏰ Hết giờ! ${winner} thắng.`;
+      document.getElementById("rematchBtn").style.display = "inline-block";
+      document.getElementById("timer").textContent = "";
+      isMyTurn = false;
+    });
+
+    // --- Khi trận kết thúc (bên nào cũng nhận được) ---
+    socket.on("match_end_broadcast", ({ winner, reason }) => {
+      gameOver = true;
+      let text = "";
+      if (reason === "timeout") text = `⏰ Hết giờ! ${winner} thắng.`;
+      else if (reason === "disconnect") text = `⚠️ Đối thủ rời trận! ${winner} thắng.`;
+      else text = `🎉 ${winner} thắng trận!`;
+      document.getElementById("winner").textContent = text;
+      document.getElementById("rematchBtn").style.display = "inline-block";
+      document.getElementById("timer").textContent = "";
+      isMyTurn = false;
+    });
+
+    // --- Khi có thông báo khác ---
+    socket.on("status_msg", (m) => updateStatus(m));
+    socket.on("error_msg", (m) => alert(m));
+
+    // --- Khi người chơi thắng (client tự phát hiện) ---
+    function handleClick(r, c) {
+      if (gameOver || !isMyTurn) return;
+      if (board[r][c]) return;
+      makeMove(r, c, mySymbol);
+      socket.emit("player_move", { matchId, r, c, symbol: mySymbol });
+    }
+
+    function makeMove(r, c, symbol) {
+      board[r][c] = symbol;
+      cells[r][c].textContent = symbol;
+      if (checkWin(r, c, symbol)) {
+        gameOver = true;
+        document.getElementById("winner").textContent = `🎉 ${symbol} thắng trận!`;
+        document.getElementById("rematchBtn").style.display = "inline-block";
+        socket.emit("match_end", { matchId, winner: symbol, board });
+      }
+    }
+
+    function checkWin(r, c, symbol) {
+      const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+      for (const [dr, dc] of dirs) {
+        let count = 1;
+        count += countDir(r, c, dr, dc, symbol);
+        count += countDir(r, c, -dr, -dc, symbol);
+        if (count >= 5) return true;
+      }
+      return false;
+    }
+
+    function countDir(r, c, dr, dc, symbol) {
+      let nr = r + dr, nc = c + dc, k = 0;
+      while (nr >= 0 && nc >= 0 && nr < size && nc < size && board[nr][nc] === symbol) {
+        k++; nr += dr; nc += dc;
+      }
+      return k;
+    }
+
+    // --- Hiển thị trạng thái ---
+    function updateStatus(msg) {
+      const text = msg || (isMyTurn ? `Bạn là ${mySymbol}. ✅ Tới lượt bạn` : `Bạn là ${mySymbol}. ⏳ Chờ đối thủ`);
+      document.getElementById("status").textContent = text;
+    }
+
+    // --- Rematch ---
+    function sendRematch() {
+      socket.emit("rematch_request", matchId);
+      document.getElementById("status").textContent = "Đã gửi yêu cầu chơi lại...";
+      document.getElementById("rematchBtn").disabled = true;
+    }
+
+    socket.on("rematch_wait", (m) => (document.getElementById("status").textContent = m));
+
+    socket.on("rematch_start", () => {
+      // Reset bàn cờ
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+          board[r][c] = "";
+          cells[r][c].textContent = "";
+        }
+      }
+      gameOver = false;
+      currentTurn = "X";
+      isMyTurn = (mySymbol === "X");
+      document.getElementById("winner").textContent = "";
+      document.getElementById("rematchBtn").style.display = "none";
+      document.getElementById("rematchBtn").disabled = false;
+      updateStatus("Ván mới bắt đầu!");
+    });
+  </script>
+</body>
+</html>

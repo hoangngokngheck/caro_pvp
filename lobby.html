@@ -3,47 +3,25 @@
 <head>
   <meta charset="UTF-8" />
   <title>Lobby Caro PvP</title>
-  <script src="/socket.io/socket.io.js"></script>
   <style>
-    body {
-      font-family: sans-serif;
-      max-width: 720px;
-      margin: 40px auto;
-      background: #f9f9f9;
-    }
-    input, button {
-      padding: 8px;
-      margin: 4px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 12px;
-    }
-    th, td {
-      border: 1px solid #ccc;
-      padding: 8px;
-      text-align: left;
-    }
-    #header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    #me {
-      font-weight: bold;
-      color: #007bff;
-    }
-    button { cursor: pointer; }
+    body { font-family: sans-serif; max-width: 720px; margin: 40px auto; }
+    input, button { padding: 8px; margin: 4px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    ul { list-style-type: none; padding: 0; }
+    li { margin: 4px 0; }
+    .status-idle { color: green; font-weight: bold; }
+    .status-match { color: gray; font-style: italic; }
   </style>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
 <body>
-  <div id="header">
-    <h2>🎮 Lobby Caro PvP</h2>
-    <div>
-      <span id="me"></span>
-      <button onclick="logout()">Đăng xuất</button>
-    </div>
+  <h2>🎮 Lobby Caro PvP</h2>
+
+  <div id="auth">
+    <input id="username" placeholder="Nhập tên bất kỳ..." />
+    <button onclick="login()">Đăng nhập</button>
+    <span id="me"></span>
   </div>
 
   <div id="actions" style="display:none;">
@@ -60,47 +38,34 @@
   </div>
 
   <table id="tbl" style="display:none;">
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Trạng thái</th>
-        <th>Người chơi</th>
-        <th></th>
-      </tr>
-    </thead>
+    <thead><tr><th>ID</th><th>Trạng thái</th><th>Người chơi</th><th></th></tr></thead>
     <tbody id="rows"></tbody>
   </table>
 
   <script>
-    const socket = io({ reconnection: true, reconnectionAttempts: 5 });
+    const socket = io();
     let user = null;
     let userId = null;
     let username = null;
 
-    // --- Kiểm tra đăng nhập ---
-    const savedUser = localStorage.getItem("user");
-    if (!savedUser) {
-      window.location = "/auth.html";
-    } else {
-      user = JSON.parse(savedUser);
+    // --- Đăng nhập ---
+    async function login() {
+      username = document.getElementById("username").value.trim();
+      if (!username) return alert("Nhập tên!");
+
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username }),
+      });
+      user = await res.json();
       userId = user.id;
-      username = user.username;
-      document.getElementById("me").textContent = `👤 ${username}`;
+
+      document.getElementById("me").textContent = ` | Xin chào, ${user.username} (id=${user.id})`;
       document.getElementById("actions").style.display = "block";
+
       socket.emit("user_online", { userId, username });
       loadMatches();
-    }
-
-    // --- Khi socket bị mất và kết nối lại ---
-    socket.on("reconnect", () => {
-      console.log("🔄 Reconnected, gửi lại trạng thái online...");
-      if (userId && username) socket.emit("user_online", { userId, username });
-    });
-
-    // --- Đăng xuất ---
-    function logout() {
-      localStorage.removeItem("user");
-      window.location = "/auth.html";
     }
 
     // --- Tải danh sách trận ---
@@ -121,7 +86,7 @@
       document.getElementById("tbl").style.display = "table";
     }
 
-    // --- Tạo trận mới ---
+    // --- Tạo / tham gia trận ---
     async function createMatch() {
       if (!user) return alert("Đăng nhập trước!");
       const res = await fetch("/api/matches", {
@@ -133,7 +98,6 @@
       window.location = `/game.html?matchId=${matchId}&userId=${user.id}`;
     }
 
-    // --- Tham gia trận ---
     async function joinMatch(matchId) {
       if (!user) return alert("Đăng nhập trước!");
       const res = await fetch(`/api/matches/${matchId}/join`, {
@@ -146,14 +110,13 @@
       window.location = `/game.html?matchId=${matchId}&userId=${user.id}`;
     }
 
-    // --- Xem lịch sử ---
     function goHistory() {
       window.location = "/history.html";
     }
 
-    /* ===================== MỜI NGƯỜI CHƠI ===================== */
+    /* ===================== PHẦN MỜI NGƯỜI CHƠI ===================== */
 
-    // Danh sách người online
+    // Cập nhật danh sách người online
     socket.on("update_online_users", (list) => {
       const onlineList = document.getElementById("onlineList");
       onlineList.innerHTML = "";
@@ -161,21 +124,19 @@
         if (u.id != userId) {
           const li = document.createElement("li");
           if (u.status === "in_match") {
-            li.textContent = `${u.username} – 🎮 Đang trong trận`;
+            li.innerHTML = `🎮 <span class="status-match">${u.username} – đang trong trận</span>`;
           } else {
-            li.innerHTML = `${u.username} <button onclick="sendInvite(${u.id})">Mời</button>`;
+            li.innerHTML = `🟢 <span class="status-idle">${u.username}</span> 
+              <button onclick="sendInvite(${u.id})">Mời</button>`;
           }
           onlineList.appendChild(li);
         }
       });
     });
 
-    // Gửi lời mời
     function sendInvite(toId) {
       socket.emit("send_invite", { fromId: userId, toId });
     }
-
-    socket.on("invite_error", (msg) => alert("⚠️ " + msg));
 
     // Khi có lời mời mới
     socket.on("new_invite", ({ fromId, fromName }) => {
@@ -183,18 +144,23 @@
       socket.emit("get_invites", userId);
     });
 
-    // Cập nhật danh sách lời mời
+    // Danh sách lời mời
     socket.on("invite_list", (list) => {
       const inviteList = document.getElementById("inviteList");
       inviteList.innerHTML = "";
       list.forEach((inv) => {
         const li = document.createElement("li");
-        li.innerHTML = `
-          ${inv.fromName}
+        li.innerHTML = `${inv.fromName}
           <button onclick="acceptInvite(${inv.fromId})">Chấp nhận</button>
           <button onclick="declineInvite(${inv.fromId})">Từ chối</button>`;
         inviteList.appendChild(li);
       });
+    });
+
+    // Khi có lỗi lời mời (offline / đang trong trận)
+    socket.on("invite_error", (msg) => {
+      alert(`⚠️ ${msg}`);
+      socket.emit("get_invites", userId);
     });
 
     // Khi lời mời được chấp nhận → vào game
@@ -202,21 +168,17 @@
       window.location = `/game.html?matchId=${matchId}&userId=${userId}`;
     });
 
-    // Từ chối / chấp nhận
     function acceptInvite(fromId) {
       socket.emit("accept_invite", { userId, fromId });
     }
+
     function declineInvite(fromId) {
       socket.emit("decline_invite", { userId, fromId });
     }
+
     function declineAll() {
       socket.emit("decline_all", userId);
     }
-
-    // Debug
-    socket.on("connect_error", (err) => {
-      console.error("❌ Lỗi socket:", err.message);
-    });
   </script>
 </body>
 </html>
