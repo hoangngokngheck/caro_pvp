@@ -7,7 +7,7 @@ const path = require("path");
 
 // ================== ROUTES ==================
 const authRoutes = require("./routes/authRoutes");
-const matchRoutes = require("./routes/matchRoutes");
+const createMatchRoutes = require("./routes/matchRoutes");
 const historyRoutes = require("./routes/historyRoutes");
 
 // ================== KHỞI TẠO APP ==================
@@ -18,9 +18,14 @@ app.use(express.json());
 // ⚠️ Serve file tĩnh từ thư mục public/
 app.use(express.static(path.join(__dirname, "public")));
 
+// ================== BỘ NHỚ TẠM ==================
+const matches = new Map();     // matchId -> thông tin trận
+const users = new Map();       // userId  -> { username, socketId }
+const userStatus = new Map();  // userId  -> "idle" | "in_match"
+
 // ================== ROUTE HANDLERS ==================
 app.use("/api", authRoutes);
-app.use("/api/matches", matchRoutes);
+app.use("/api/matches", createMatchRoutes(matches, users));
 app.use("/api/history", historyRoutes);
 
 // ================== HTTP + SOCKET SERVER ==================
@@ -33,11 +38,6 @@ const io = new Server(server, {
     methods: ["GET", "POST"],
   },
 });
-
-// ================== BỘ NHỚ TẠM ==================
-const matches = new Map();     // matchId -> thông tin trận
-const users = new Map();       // userId  -> { username, socketId }
-const userStatus = new Map();  // userId  -> "idle" | "in_match"
 
 // ================== MODULE SOCKET ==================
 // ⚠️ Phải import SAU khi tạo io, và truyền cùng 1 instance io để đồng bộ
