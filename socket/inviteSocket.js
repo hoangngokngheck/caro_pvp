@@ -1,18 +1,16 @@
-// socket/inviteSocket.js
-module.exports = function (io, matches, users, userStatus) {
-  // Danh sách người online được chia sẻ qua tham số `users`
-  users.clear();
+const { createMatchTemplate } = require("../utils/matchState");
+
+module.exports = function (io, state) {
+  const { matches, users, userStatus, generateMatchId } = state;
 
   // Lưu lời mời (targetId → [{ fromId, fromName, sentAt }])
-  const invites = {};
+  const invites = new Map();
 
   io.on("connection", (socket) => {
-    console.log("🔗 Kết nối mới:", socket.id);
-
     /* ===================== ĐĂNG NHẬP ONLINE ===================== */
     socket.on("user_online", ({ userId, username }) => {
       users.set(userId, { socketId: socket.id, username });
-      userStatus.set(userId, "idle");
+      if (!userStatus.get(userId)) userStatus.set(userId, "idle");
       socket.data.userId = userId;
       socket.data.username = username;
       broadcastOnlineUsers();
@@ -32,18 +30,22 @@ module.exports = function (io, matches, users, userStatus) {
     /* ===================== GỬI LỜI MỜI ===================== */
     socket.on("send_invite", ({ fromId, toId }) => {
       const target = users.get(toId);
-      if (!target)
+      if (!target) {
         return socket.emit("invite_error", "Người chơi không online!");
+      }
 
-      if (userStatus.get(toId) === "in_match")
+      if (userStatus.get(toId) === "in_match") {
         return socket.emit("invite_error", "Người này đang trong trận!");
+      }
 
-      if (!invites[toId]) invites[toId] = [];
-      if (invites[toId].some((inv) => inv.fromId === fromId))
+      const pending = invites.get(toId) || [];
+      if (pending.some((inv) => inv.fromId === fromId)) {
         return socket.emit("invite_error", "Đã gửi lời mời cho người này rồi!");
+      }
 
       const fromName = users.get(fromId)?.username || "Ẩn danh";
-      invites[toId].push({ fromId, fromName, sentAt: Date.now() });
+      pending.push({ fromId, fromName, sentAt: Date.now() });
+      invites.set(toId, pending);
 
       io.to(target.socketId).emit("new_invite", { fromId, fromName });
     });
@@ -51,57 +53,61 @@ module.exports = function (io, matches, users, userStatus) {
     /* ===================== LẤY DANH SÁCH LỜI MỜI ===================== */
     socket.on("get_invites", (userId) => {
       cleanupInvites(userId);
-      socket.emit("invite_list", invites[userId] || []);
+      socket.emit("invite_list", invites.get(userId) || []);
     });
 
     /* ===================== TỪ CHỐI LỜI MỜI ===================== */
     socket.on("decline_invite", ({ userId, fromId }) => {
-      if (invites[userId]) {
-        invites[userId] = invites[userId].filter(
+      if (invites.has(userId)) {
+        const filtered = (invites.get(userId) || []).filter(
           (inv) => inv.fromId !== fromId
         );
-        socket.emit("invite_list", invites[userId]);
+        if (filtered.length === 0) invites.delete(userId);
+        else invites.set(userId, filtered);
+        socket.emit("invite_list", filtered);
       }
     });
 
     /* ===================== TỪ CHỐI TẤT CẢ ===================== */
     socket.on("decline_all", (userId) => {
-      invites[userId] = [];
+      invites.delete(userId);
       socket.emit("invite_list", []);
     });
 
     /* ===================== CHẤP NHẬN LỜI MỜI ===================== */
     socket.on("accept_invite", ({ userId, fromId }) => {
-      if (!users.has(fromId))
+      if (!users.has(fromId)) {
         return socket.emit("invite_error", "Người mời đã offline!");
+      }
 
-      if (userStatus.get(fromId) === "in_match")
+      if (userStatus.get(fromId) === "in_match") {
         return socket.emit("invite_error", "Người mời đang trong trận!");
+      }
 
-      if (userStatus.get(userId) === "in_match")
+      if (userStatus.get(userId) === "in_match") {
         return socket.emit("invite_error", "Bạn đang trong trận!");
+      }
 
       const fromSocket = users.get(fromId).socketId;
-      const matchId = Date.now(); // dùng timestamp làm id nhanh
-      const m = {
+      const matchId = generateMatchId();
+      const match = createMatchTemplate({
         id: matchId,
-        type: "pvp",
-        status: "waiting",
-        players: [fromId, userId],
-        sockets: { X: fromSocket, O: socket.id },
-        turn: "X",
-        startedAt: new Date().toISOString(),
-        _saved: false,
-      };
+        players: [
+          { id: fromId, symbol: "X" },
+          { id: userId, symbol: "O" },
+        ],
+        status: "in_progress",
+      });
 
-      matches.set(matchId, m);
+      matches.set(matchId, match);
       userStatus.set(fromId, "in_match");
       userStatus.set(userId, "in_match");
 
       io.to(fromSocket).emit("invite_accepted", { matchId });
       io.to(socket.id).emit("invite_accepted", { matchId });
 
-      delete invites[userId];
+      invites.delete(userId);
+      cleanupInvites(fromId);
       broadcastOnlineUsers(); // cập nhật trạng thái toàn hệ thống
     });
 
@@ -116,11 +122,13 @@ module.exports = function (io, matches, users, userStatus) {
     }
 
     function cleanupInvites(targetId) {
-      if (!invites[targetId]) return;
-      invites[targetId] = invites[targetId].filter(
+      if (!invites.has(targetId)) return;
+      const fresh = (invites.get(targetId) || []).filter(
         (inv) =>
           users.has(inv.fromId) && Date.now() - inv.sentAt < 60000 // 1 phút
       );
+      if (fresh.length === 0) invites.delete(targetId);
+      else invites.set(targetId, fresh);
     }
   });
 };

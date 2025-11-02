@@ -1,15 +1,16 @@
 const express = require("express");
+const { createMatchTemplate } = require("../utils/matchState");
 
-module.exports = function createMatchRoutes(matches, users) {
+module.exports = function createMatchRoutes(state) {
   const router = express.Router();
 
-  let nextMatchId = 1;
-
   router.get("/", (req, res) => {
-    const list = Array.from(matches.values()).map((m) => ({
-      id: m.id,
-      status: m.status,
-      players: m.players.map((id) => users.get(id)?.username || "unknown"),
+    const list = Array.from(state.matches.values()).map((match) => ({
+      id: match.id,
+      status: match.status,
+      players: match.players.map((p) =>
+        state.users.get(p.id)?.username || `User#${p.id}`
+      ),
     }));
     res.json(list);
   });
@@ -18,27 +19,34 @@ module.exports = function createMatchRoutes(matches, users) {
     const { userId } = req.body;
     if (!userId) return res.status(400).json({ error: "Thiếu userId" });
 
-    const id = nextMatchId++;
-    const m = {
+    const id = state.generateMatchId();
+    const match = createMatchTemplate({
       id,
+      players: [{ id: userId, symbol: "X" }],
       status: "waiting",
-      players: [userId],
-    };
-    matches.set(id, m);
+    });
+
+    state.matches.set(id, match);
+    state.userStatus.set(userId, "in_match");
+
     res.json({ matchId: id });
   });
 
   router.post("/:id/join", (req, res) => {
     const matchId = Number(req.params.id);
     const { userId } = req.body;
-    const m = matches.get(matchId);
-    if (!m) return res.status(404).json({ error: "Không tìm thấy trận" });
-    if (m.players.length >= 2)
-      return res.status(400).json({ error: "Phòng đã đủ người" });
-    if (m.players.includes(userId))
-      return res.status(400).json({ error: "Bạn đã ở trong phòng" });
+    const match = state.matches.get(matchId);
 
-    m.players.push(userId);
+    if (!match) return res.status(404).json({ error: "Không tìm thấy trận" });
+    if (match.players.some((p) => p.id === userId))
+      return res.status(400).json({ error: "Bạn đã ở trong phòng" });
+    if (match.players.length >= 2)
+      return res.status(400).json({ error: "Phòng đã đủ người" });
+
+    match.players.push({ id: userId, symbol: "O" });
+    match.status = "in_progress";
+    state.userStatus.set(userId, "in_match");
+
     res.json({ ok: true });
   });
 
