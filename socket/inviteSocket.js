@@ -1,7 +1,7 @@
 // socket/inviteSocket.js
 module.exports = function (io, matches, users, userStatus) {
-  // Danh sách người online (userId → { socketId, username })
-  const onlineUsers = new Map();
+  // Danh sách người online được chia sẻ qua tham số `users`
+  users.clear();
 
   // Lưu lời mời (targetId → [{ fromId, fromName, sentAt }])
   const invites = {};
@@ -11,7 +11,7 @@ module.exports = function (io, matches, users, userStatus) {
 
     /* ===================== ĐĂNG NHẬP ONLINE ===================== */
     socket.on("user_online", ({ userId, username }) => {
-      onlineUsers.set(userId, { socketId: socket.id, username });
+      users.set(userId, { socketId: socket.id, username });
       userStatus.set(userId, "idle");
       socket.data.userId = userId;
       socket.data.username = username;
@@ -22,7 +22,7 @@ module.exports = function (io, matches, users, userStatus) {
     socket.on("disconnect", () => {
       const uid = socket.data.userId;
       if (uid) {
-        onlineUsers.delete(uid);
+        users.delete(uid);
         cleanupInvites(uid);
         userStatus.delete(uid);
         broadcastOnlineUsers();
@@ -31,7 +31,7 @@ module.exports = function (io, matches, users, userStatus) {
 
     /* ===================== GỬI LỜI MỜI ===================== */
     socket.on("send_invite", ({ fromId, toId }) => {
-      const target = onlineUsers.get(toId);
+      const target = users.get(toId);
       if (!target)
         return socket.emit("invite_error", "Người chơi không online!");
 
@@ -42,7 +42,7 @@ module.exports = function (io, matches, users, userStatus) {
       if (invites[toId].some((inv) => inv.fromId === fromId))
         return socket.emit("invite_error", "Đã gửi lời mời cho người này rồi!");
 
-      const fromName = onlineUsers.get(fromId)?.username || "Ẩn danh";
+      const fromName = users.get(fromId)?.username || "Ẩn danh";
       invites[toId].push({ fromId, fromName, sentAt: Date.now() });
 
       io.to(target.socketId).emit("new_invite", { fromId, fromName });
@@ -72,7 +72,7 @@ module.exports = function (io, matches, users, userStatus) {
 
     /* ===================== CHẤP NHẬN LỜI MỜI ===================== */
     socket.on("accept_invite", ({ userId, fromId }) => {
-      if (!onlineUsers.has(fromId))
+      if (!users.has(fromId))
         return socket.emit("invite_error", "Người mời đã offline!");
 
       if (userStatus.get(fromId) === "in_match")
@@ -81,7 +81,7 @@ module.exports = function (io, matches, users, userStatus) {
       if (userStatus.get(userId) === "in_match")
         return socket.emit("invite_error", "Bạn đang trong trận!");
 
-      const fromSocket = onlineUsers.get(fromId).socketId;
+      const fromSocket = users.get(fromId).socketId;
       const matchId = Date.now(); // dùng timestamp làm id nhanh
       const m = {
         id: matchId,
@@ -107,7 +107,7 @@ module.exports = function (io, matches, users, userStatus) {
 
     /* ===================== HÀM HỖ TRỢ ===================== */
     function broadcastOnlineUsers() {
-      const list = Array.from(onlineUsers.entries()).map(([id, u]) => ({
+      const list = Array.from(users.entries()).map(([id, u]) => ({
         id,
         username: u.username,
         status: userStatus.get(id) || "offline",
@@ -119,7 +119,7 @@ module.exports = function (io, matches, users, userStatus) {
       if (!invites[targetId]) return;
       invites[targetId] = invites[targetId].filter(
         (inv) =>
-          onlineUsers.has(inv.fromId) && Date.now() - inv.sentAt < 60000 // 1 phút
+          users.has(inv.fromId) && Date.now() - inv.sentAt < 60000 // 1 phút
       );
     }
   });
