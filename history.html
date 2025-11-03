@@ -24,6 +24,21 @@
     const matchList = document.getElementById("matchList");
     const boardDiv = document.getElementById("board");
 
+    // Hàm chuyển UTC sang giờ Việt Nam (GMT+7)
+    function toVietnamTime(utcString) {
+      if (!utcString) return "";
+      const date = new Date(utcString);
+      // cộng thêm 7 tiếng
+      date.setHours(date.getHours() );
+      const yyyy = date.getFullYear();
+      const mm = String(date.getMonth() + 1).padStart(2, "0");
+      const dd = String(date.getDate()).padStart(2, "0");
+      const hh = String(date.getHours()).padStart(2, "0");
+      const mi = String(date.getMinutes()).padStart(2, "0");
+      const ss = String(date.getSeconds()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+    }
+
     // Lấy danh sách trận gần nhất
     async function loadHistory() {
       const res = await fetch("/api/history");
@@ -37,12 +52,14 @@
       `;
       list.forEach(m => {
         const tr = document.createElement("tr");
+        const started = toVietnamTime(m.startedAt);
+        const ended = toVietnamTime(m.endedAt);
         tr.innerHTML = `
           <td>${m.id}</td>
           <td>${m.status}</td>
-          <td>${m.result}</td>
-          <td>${m.startedAt?.replace("T"," ").slice(0,19) || ""}</td>
-          <td>${m.endedAt?.replace("T"," ").slice(0,19) || ""}</td>
+          <td>${m.result || ""}</td>
+          <td>${started}</td>
+          <td>${ended}</td>
           <td><button onclick="viewMatch(${m.id})">👁️</button></td>
         `;
         table.appendChild(tr);

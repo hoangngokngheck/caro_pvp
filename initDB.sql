@@ -1,0 +1,26 @@
+CREATE DATABASE caro_pvp;
+USE caro_pvp;
+
+CREATE TABLE user (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(50),
+  password VARCHAR(50),
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE match_game (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  type VARCHAR(20),
+  startedAt DATETIME,
+  endedAt DATETIME,
+  status VARCHAR(20),
+  result VARCHAR(10)
+);
+
+CREATE TABLE board_state (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  matchId INT,
+  boardData TEXT,
+  savedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (matchId) REFERENCES match_game(id)
+);

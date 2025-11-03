@@ -37,6 +37,8 @@
 
   <script>
     const socket = io();
+    // socket.emit("user_online", { userId, username });
+
 
     const params = new URLSearchParams(location.search);
     const matchId = Number(params.get("matchId"));
@@ -65,6 +67,7 @@
     }
 
     // --- Tham gia trận ---
+    // socket.emit("user_online", { userId, username });
     socket.emit("join_match", { matchId, userId });
 
     socket.on("assign_symbol", ({ symbol, turn }) => {
